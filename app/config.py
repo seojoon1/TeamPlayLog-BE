@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./teamplaylog.db"
     # 개발 전용 기본값. 배포 시 .env의 JWT_SECRET으로 반드시 바꾼다.
     jwt_secret: str = "dev-only-secret-change-me-before-deploying-0000"
+    # 개발용 웹 미리보기(Expo web) 주소. 앱(Android)은 CORS와 상관없다.
+    cors_origins: list[str] = ["http://localhost:8081", "http://127.0.0.1:8081"]
     upload_dir: str = "./uploads"
     report_dir: str = "./reports"
     scheduler_enabled: bool = True

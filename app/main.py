@@ -6,6 +6,7 @@ from app.config import get_settings
 from app.db import Base, engine
 from app.jobs import start_scheduler
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.errors import AppError, app_error_handler, http_error_handler, validation_error_handler
@@ -27,6 +28,13 @@ app = FastAPI(
     version="0.1.0",
     description="역할 약속과 동료 확인 기록으로 팀플 평가의 근거를 남기는 앱의 백엔드",
     lifespan=lifespan,
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_settings().cors_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 app.add_exception_handler(AppError, app_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
