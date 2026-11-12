@@ -2,15 +2,15 @@
 
 import uuid
 from datetime import datetime
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
+from urllib.parse import quote
 
 from fastapi import APIRouter, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.config import get_settings
 from app.deps import DB, CurrentUser, Membership, MemberOf, find_membership
 from app.errors import AppError, conflict, forbidden, not_found
 from app.models import (
@@ -20,6 +20,7 @@ from app.models import (
     Record,
     RecordRevision,
     RecordStatus,
+    StoredFile,
     Task,
     TeamMember,
     User,
@@ -44,34 +45,33 @@ ALLOWED_EXT = {
     ".xls", ".xlsx", ".hwp", ".hwpx", ".zip", ".txt", ".md",
 }  # fmt: skip
 
-# ---- 결과물 파일 (MVP: 서버 폴더 저장) ---------------------------------------------
+# ---- 결과물 파일 (DB 저장) -------------------------------------------------------
 
 
-def _file_path(key: str) -> Path:
-    p = PurePosixPath(key)
-    if p.is_absolute() or ".." in p.parts or len(p.parts) != 2:
-        raise not_found("파일을 찾을 수 없습니다.")
-    return Path(get_settings().upload_dir, *p.parts)
+def _stored(db: Session, key: str) -> StoredFile | None:
+    return db.scalar(select(StoredFile).where(StoredFile.key == key))
 
 
 @router.post("/files/upload-url", response_model=UploadUrlOut, tags=["F-05 기록"], summary="결과물 업로드 주소 발급")
-def upload_url(body: UploadUrlIn, user: CurrentUser):
-    """받은 upload_url로 파일 바이트를 PUT 하면 된다. 배포 시 오브젝트 저장소 서명 URL로 바꾼다."""
+def upload_url(body: UploadUrlIn, user: CurrentUser, db: DB):
+    """받은 upload_url로 파일 바이트를 PUT 하면 된다. 파일은 DB에 저장된다."""
     ext = PurePosixPath(body.filename.lower()).suffix
     if ext not in ALLOWED_EXT:
         raise AppError(422, "FILE_TYPE", "올릴 수 없는 파일 형식입니다. 이미지, PDF, 문서, 압축 파일만 올릴 수 있습니다.")
     key = f"{user.id}/{uuid.uuid4().hex}{ext}"
+    db.add(StoredFile(key=key, owner_id=user.id, filename=body.filename[:200], content_type=body.content_type[:100]))
+    db.commit()
     return UploadUrlOut(upload_url=f"/api/v1/files/{key}", file_key=key)
 
 
 @router.put("/files/{owner}/{name}", status_code=status.HTTP_204_NO_CONTENT, tags=["F-05 기록"], summary="파일 올리기")
-async def put_file(owner: str, name: str, request: Request, user: CurrentUser):
+async def put_file(owner: str, name: str, request: Request, user: CurrentUser, db: DB):
     if owner != str(user.id):
         raise forbidden("본인에게 발급된 주소로만 올릴 수 있습니다.")
-    path = _file_path(f"{owner}/{name}")
-    if PurePosixPath(name).suffix not in ALLOWED_EXT:
-        raise AppError(422, "FILE_TYPE", "올릴 수 없는 파일 형식입니다.")
-    if path.exists():
+    f = _stored(db, f"{owner}/{name}")
+    if f is None:
+        raise not_found("업로드 주소를 다시 받아 주세요.")
+    if f.uploaded_at is not None:
         raise conflict("FILE_EXISTS", "이미 올린 파일입니다. 새 주소를 받아 주세요.")
     data = bytearray()
     async for chunk in request.stream():
@@ -80,14 +80,15 @@ async def put_file(owner: str, name: str, request: Request, user: CurrentUser):
             raise AppError(413, "FILE_TOO_LARGE", "파일은 10MB까지 올릴 수 있습니다.")
     if not data:
         raise AppError(422, "EMPTY_FILE", "빈 파일입니다.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(bytes(data))
+    f.data = bytes(data)
+    f.size = len(data)
+    f.uploaded_at = clock.now()
+    db.commit()
 
 
 @router.get("/files/{owner}/{name}", tags=["F-05 기록"], summary="파일 받기")
 def get_file(owner: str, name: str, user: CurrentUser, db: DB):
     key = f"{owner}/{name}"
-    path = _file_path(key)
     allowed = owner == str(user.id)
     if not allowed:
         team_ids = db.scalars(select(Record.team_id).where(Record.file_key == key, Record.status != RecordStatus.WITHDRAWN))
@@ -98,9 +99,14 @@ def get_file(owner: str, name: str, user: CurrentUser, db: DB):
                 break
             except AppError:
                 pass
-    if not allowed or not path.exists():
+    f = _stored(db, key) if allowed else None
+    if f is None or f.uploaded_at is None:
         raise not_found("파일을 찾을 수 없습니다.")
-    return FileResponse(path)
+    return Response(
+        f.data,
+        media_type=f.content_type,
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(f.filename)}"},
+    )
 
 
 # ---- 기록 -------------------------------------------------------------------
@@ -122,8 +128,11 @@ def _check_task(db: Session, team_id: uuid.UUID, task_id: uuid.UUID | None) -> T
     return task
 
 
-def _check_file(user: User, key: str | None) -> None:
-    if key and (not key.startswith(f"{user.id}/") or not _file_path(key).exists()):
+def _check_file(db: Session, user: User, key: str | None) -> None:
+    if not key:
+        return
+    f = _stored(db, key)
+    if f is None or f.owner_id != user.id or f.uploaded_at is None:
         raise AppError(422, "VALIDATION_ERROR", "올린 파일을 찾을 수 없습니다. 파일을 다시 올려 주세요.")
 
 
@@ -143,7 +152,7 @@ def _ask_confirm(db: Session, r: Record, author: TeamMember, again: bool = False
 @router.post("/teams/{team_id}/records", response_model=RecordOut, status_code=status.HTTP_201_CREATED, tags=["F-05 기록"], summary="기록 남기기")
 def create_record(body: RecordCreateIn, m: MemberOf, db: DB, user: CurrentUser):
     task = _check_task(db, m.team.id, body.task_id)
-    _check_file(user, body.file_key)
+    _check_file(db, user, body.file_key)
     if not (body.link_url or body.file_key or body.note):
         raise AppError(422, "VALIDATION_ERROR", "결과물(링크·파일)이나 한 줄 설명 중 하나는 남겨 주세요.")
     r = Record(
@@ -220,7 +229,7 @@ def update_record(record_id: uuid.UUID, body: RecordUpdateIn, user: CurrentUser,
     if "link_url" in changes:
         r.link_url = str(body.link_url) if body.link_url else None
     if "file_key" in changes:
-        _check_file(user, body.file_key)
+        _check_file(db, user, body.file_key)
         r.file_key = body.file_key
     if "note" in changes:
         r.note = body.note or None

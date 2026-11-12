@@ -3,13 +3,14 @@
 import uuid
 
 from fastapi import APIRouter, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app import clock
 from app.deps import DB, CurrentUser, Membership, MemberOf, find_membership
 from app.errors import AppError, conflict, forbidden, not_found
 from app.models import (
+    AgreementTask,
     NotificationKind,
     Record,
     RecordStatus,
@@ -169,3 +170,21 @@ def update_task(task_id: uuid.UUID, body: TaskUpdateIn, user: CurrentUser, db: D
         task.status = new_status
     db.commit()
     return task_out(db, task)
+
+
+@router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT, summary="할 일 지우기")
+def delete_task(task_id: uuid.UUID, user: CurrentUser, db: DB):
+    """잘못 만든 할 일을 지운다. 기록이 달린 할 일은 기여의 근거를 지키기 위해 지울 수 없다."""
+    task, m = _load(db, task_id, user)
+    if not _can_edit(db, task, m):
+        raise forbidden("담당자나 조장만 지울 수 있습니다.")
+    live = db.scalar(
+        select(func.count()).select_from(Record).where(Record.task_id == task.id, Record.status != RecordStatus.WITHDRAWN)
+    )
+    if live:
+        raise conflict("HAS_RECORDS", "기록이 남아 있는 할 일은 지울 수 없어요. 기여의 근거가 사라지기 때문이에요.")
+    db.execute(update(Record).where(Record.task_id == task.id).values(task_id=None))
+    db.execute(update(AgreementTask).where(AgreementTask.created_task_id == task.id).values(created_task_id=None))
+    db.execute(delete(TaskEvent).where(TaskEvent.task_id == task.id))
+    db.delete(task)
+    db.commit()

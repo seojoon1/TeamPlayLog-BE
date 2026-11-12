@@ -1,18 +1,33 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEV_JWT_SECRET = "dev-only-secret-change-me-before-deploying-0000"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "sqlite:///./teamplaylog.db"
+
+    @field_validator("database_url")
+    @classmethod
+    def _psycopg(cls, v: str) -> str:
+        # Neon·Render가 주는 postgres:// 주소를 SQLAlchemy psycopg 드라이버 주소로 바꾼다
+        for prefix in ("postgres://", "postgresql://"):
+            if v.startswith(prefix):
+                return "postgresql+psycopg://" + v[len(prefix) :]
+        return v
+
+    @property
+    def is_sqlite(self) -> bool:
+        return self.database_url.startswith("sqlite")
+
     # 개발 전용 기본값. 배포 시 .env의 JWT_SECRET으로 반드시 바꾼다.
-    jwt_secret: str = "dev-only-secret-change-me-before-deploying-0000"
+    jwt_secret: str = DEV_JWT_SECRET
     # 개발용 웹 미리보기(Expo web) 주소. 앱(Android)은 CORS와 상관없다.
     cors_origins: list[str] = ["http://localhost:8081", "http://127.0.0.1:8081"]
-    upload_dir: str = "./uploads"
-    report_dir: str = "./reports"
     scheduler_enabled: bool = True
     access_token_minutes: int = 60
     refresh_token_days: int = 14

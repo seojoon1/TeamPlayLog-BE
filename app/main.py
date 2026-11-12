@@ -1,23 +1,26 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-
-from app.config import get_settings
-from app.db import Base, engine
-from app.jobs import start_scheduler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.config import DEV_JWT_SECRET, get_settings
+from app.db import Base, engine
 from app.errors import AppError, app_error_handler, http_error_handler, validation_error_handler
+from app.jobs import start_scheduler
 from app.routers import auth, notifications, records, reports, tasks, teams
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # 개발용(SQLite): 테이블이 없으면 만든다. 배포(PostgreSQL)는 Alembic 마이그레이션을 쓴다.
-    Base.metadata.create_all(engine)
-    sched = start_scheduler() if get_settings().scheduler_enabled else None
+    s = get_settings()
+    if s.is_sqlite:
+        # 개발용(SQLite): 테이블이 없으면 만든다. 배포(PostgreSQL)는 시작 전에 `alembic upgrade head`를 돌린다.
+        Base.metadata.create_all(engine)
+    elif s.jwt_secret == DEV_JWT_SECRET or len(s.jwt_secret) < 32:
+        raise RuntimeError("배포 환경에서는 JWT_SECRET을 32자 이상의 임의 문자열로 설정해야 합니다.")
+    sched = start_scheduler() if s.scheduler_enabled else None
     yield
     if sched:
         sched.shutdown(wait=False)

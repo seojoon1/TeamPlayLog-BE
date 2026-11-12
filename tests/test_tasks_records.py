@@ -71,6 +71,19 @@ def test_board_mine_filter(team4):
     assert sorted(mine) == ["내 일", "다 같이"]
 
 
+def test_delete_task_only_without_records(team4):
+    tid = team4["tid"]
+    minsu, jiyun = team4["members"][:2]
+    t = _task(minsu, tid, "잘못 만든 할 일")
+    assert jiyun.delete(f"/tasks/{t['id']}").status_code == 403
+    assert minsu.delete(f"/tasks/{t['id']}").status_code == 204
+    assert minsu.get(f"/tasks/{t['id']}").status_code == 404
+    t2 = _task(minsu, tid, "기록 있는 할 일")
+    minsu.post(f"/teams/{tid}/records", {"task_id": t2["id"], "type": "OUTPUT", "note": "작업함"})
+    r = team4["leader"].delete(f"/tasks/{t2['id']}")
+    assert r.status_code == 409 and r.json()["code"] == "HAS_RECORDS"
+
+
 # ---- F-05 기록 / F-06 확인 --------------------------------------------------------
 
 

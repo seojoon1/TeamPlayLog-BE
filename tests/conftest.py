@@ -4,8 +4,6 @@ from datetime import datetime, timezone
 
 _tmp = tempfile.mkdtemp(prefix="tpl-test-")
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
-os.environ["UPLOAD_DIR"] = f"{_tmp}/uploads"
-os.environ["REPORT_DIR"] = f"{_tmp}/reports"
 os.environ["SCHEDULER_ENABLED"] = "false"
 
 import pytest  # noqa: E402

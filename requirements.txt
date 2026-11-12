@@ -9,6 +9,7 @@ bcrypt>=4.1
 APScheduler>=3.10,<4
 alembic>=1.13
 fpdf2>=2.7
+psycopg[binary]>=3.2
 
 # dev
 pytest>=8

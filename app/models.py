@@ -10,6 +10,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -285,6 +286,23 @@ class Confirmation(TimestampMixin, Base):
     valid: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class StoredFile(TimestampMixin, Base):
+    """결과물 파일. 무료 서버는 재시작하면 디스크가 비워지므로 DB에 바이트로 저장한다 (10MB까지).
+
+    upload-url을 받을 때 빈 행(data=None)을 만들고, PUT으로 바이트를 채운다.
+    """
+
+    __tablename__ = "stored_files"
+
+    key: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    filename: Mapped[str] = mapped_column(String(200))
+    content_type: Mapped[str] = mapped_column(String(100), default="application/octet-stream")
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    data: Mapped[bytes | None] = mapped_column(LargeBinary, deferred=True)
+    uploaded_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+
 # ---- 알림 -------------------------------------------------------------------
 
 
@@ -317,7 +335,6 @@ class Report(TimestampMixin, Base):
     status: Mapped[ReportStatus] = mapped_column(_enum(ReportStatus), default=ReportStatus.DRAFT)
     serial_no: Mapped[str] = mapped_column(String(20), unique=True)
     snapshot: Mapped[dict] = mapped_column(JSON, default=dict)  # 생성 시점 내용. 제출 후 고정
-    pdf_key: Mapped[str | None] = mapped_column(String(200))
     submitted_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
     views: Mapped[list["ReportView"]] = relationship()

@@ -3,7 +3,6 @@
 import secrets
 import uuid
 from datetime import timedelta
-from pathlib import Path
 
 from fastapi import APIRouter, status
 from fastapi.responses import Response
@@ -226,11 +225,6 @@ def submit_report(report_id: uuid.UUID, user: CurrentUser, db: DB):
     rep.snapshot = {**rep.snapshot, "views_at_submit": views}
     rep.status = ReportStatus.SUBMITTED
     rep.submitted_at = clock.now()
-    pdf = render(rep.snapshot, views, rep.serial_no, rep.submitted_at.isoformat())
-    path = Path(get_settings().report_dir, f"{rep.serial_no}.pdf")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(pdf)
-    rep.pdf_key = path.name
     db.commit()
     return _out(db, rep, m)
 
@@ -242,13 +236,12 @@ def submit_report(report_id: uuid.UUID, user: CurrentUser, db: DB):
     responses={200: {"content": {"application/pdf": {}}}},
 )
 def report_pdf(report_id: uuid.UUID, user: CurrentUser, db: DB):
-    """제출 전에는 미리보기 PDF를 그때그때 만들고, 제출 후에는 고정된 파일을 준다."""
+    """PDF는 저장하지 않고 요청 때마다 만든다. 제출 후에는 고정된 스냅샷(열람 현황 포함)으로 만들어 항상 같은 내용이 나온다."""
     rep, _ = _load(db, report_id, user)
-    path = Path(get_settings().report_dir, rep.pdf_key) if rep.pdf_key else None
-    if path and path.exists():
-        data = path.read_bytes()
+    if rep.status == ReportStatus.SUBMITTED:
+        views = rep.snapshot.get("views_at_submit", [])
     else:
         views = [v.model_dump(mode="json") for v in _views(db, rep)]
-        data = render(rep.snapshot, views, rep.serial_no, rep.submitted_at.isoformat() if rep.submitted_at else None)
+    data = render(rep.snapshot, views, rep.serial_no, rep.submitted_at.isoformat() if rep.submitted_at else None)
     filename = f"{rep.serial_no}.pdf"
     return Response(data, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})

@@ -1,0 +1,17 @@
+# Render Blueprint. Render 대시보드 › New › Blueprint 에서 이 레포를 고르면 아래 설정으로 서버가 만들어진다.
+# DATABASE_URL은 Neon 등에서 받은 PostgreSQL 주소를 대시보드에서 직접 넣는다 (sync: false).
+services:
+  - type: web
+    name: teamplaylog-api
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: '["http://localhost:8081"]'
