@@ -26,6 +26,15 @@ cp .env.example .env
 - PC와 휴대폰이 같은 와이파이에 있어야 한다.
 - Windows 방화벽이 8000번 포트를 막으면, 처음 실행할 때 뜨는 허용 창에서 "개인 네트워크"를 허용한다.
 
+### Neon(PostgreSQL)에 연결해서 쓸 때
+
+이 레포는 Neon 프로젝트 `cold-mountain-85536300`에 연결돼 있다 (`neon init`).
+
+- 연결 주소는 `neon init` / `neon env pull`이 `.env.local`에 쓴다 (`DATABASE_URL`, `DATABASE_URL_UNPOOLED`). 커밋되지 않는다.
+- 설정은 `.env` → `.env.local` 순서로 읽으므로, `.env.local`이 있으면 BE 폴더에서 띄운 서버는 Neon을 쓴다. SQLite로 돌리려면 `DATABASE_URL=sqlite:///./teamplaylog.db`를 환경 변수로 주고 띄운다.
+- PostgreSQL에서는 `JWT_SECRET`이 꼭 필요하다. 이 PC에서는 `.env`에 넣어 두었다 (커밋되지 않음).
+- 마이그레이션은 풀러를 거치지 않는 `DATABASE_URL_UNPOOLED`로 돈다: `.venv/Scripts/python -m alembic upgrade head`
+
 ## 테스트
 
 ```bash

@@ -7,14 +7,19 @@ DEV_JWT_SECRET = "dev-only-secret-change-me-before-deploying-0000"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # .env (직접 쓴 값) 다음에 .env.local (neon init / neon env pull 이 쓰는 값)을 읽는다. 뒤의 파일이 이긴다.
+    model_config = SettingsConfigDict(env_file=(".env", ".env.local"), extra="ignore")
 
     database_url: str = "sqlite:///./teamplaylog.db"
+    # 풀러를 거치지 않는 직접 연결 주소 (Neon). 있으면 마이그레이션은 이 주소로 돈다.
+    database_url_unpooled: str | None = None
 
-    @field_validator("database_url")
+    @field_validator("database_url", "database_url_unpooled")
     @classmethod
-    def _psycopg(cls, v: str) -> str:
+    def _psycopg(cls, v: str | None) -> str | None:
         # Neon·Render가 주는 postgres:// 주소를 SQLAlchemy psycopg 드라이버 주소로 바꾼다
+        if v is None:
+            return v
         for prefix in ("postgres://", "postgresql://"):
             if v.startswith(prefix):
                 return "postgresql+psycopg://" + v[len(prefix) :]

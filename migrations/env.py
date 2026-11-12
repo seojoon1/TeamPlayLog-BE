@@ -15,9 +15,15 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _migration_url() -> str:
+    # Neon처럼 풀러 주소와 직접 주소가 따로 있으면, 스키마 변경은 직접 주소로 한다
+    s = get_settings()
+    return s.database_url_unpooled or s.database_url
+
+
 def run_migrations_offline() -> None:
     context.configure(
-        url=get_settings().database_url,
+        url=_migration_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -28,7 +34,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    engine = make_engine(get_settings().database_url)
+    engine = make_engine(_migration_url())
     with engine.connect() as connection:
         # SQLite에서도 열 변경이 되도록 batch 모드를 켠다
         context.configure(connection=connection, target_metadata=target_metadata, render_as_batch=True)
