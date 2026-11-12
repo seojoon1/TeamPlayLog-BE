@@ -5,6 +5,31 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEV_JWT_SECRET = "dev-only-secret-change-me-before-deploying-0000"
 
+_DB_SCHEMES = ("sqlite", "postgres://", "postgresql://", "postgresql+")
+
+
+def normalize_db_url(v: str | None) -> str | None:
+    """대시보드에 붙여 넣은 DB 주소를 정리한다.
+
+    - 앞뒤 공백·줄바꿈, 감싼 따옴표를 걷어 낸다
+    - Neon Connect 창의 `psql 'postgresql://...'` 명령어 형태면 주소만 꺼낸다
+    - postgres:// 주소를 SQLAlchemy psycopg 드라이버 주소로 바꾼다
+    """
+    if v is None:
+        return None
+    v = v.strip()
+    if v.lower().startswith("psql"):
+        v = v[4:].strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
+        v = v[1:-1].strip()
+    if not v.startswith(_DB_SCHEMES):
+        # 값 자체는 비밀번호가 들어 있으므로 오류 문구에 넣지 않는다
+        raise ValueError("DATABASE_URL이 postgresql:// 또는 sqlite:// 로 시작하는 주소가 아닙니다. 앞뒤의 psql·따옴표를 빼고 주소만 넣어 주세요.")
+    for prefix in ("postgres://", "postgresql://"):
+        if v.startswith(prefix):
+            return "postgresql+psycopg://" + v[len(prefix) :]
+    return v
+
 
 class Settings(BaseSettings):
     # .env (직접 쓴 값) 다음에 .env.local (neon init / neon env pull 이 쓰는 값)을 읽는다. 뒤의 파일이 이긴다.
@@ -17,13 +42,7 @@ class Settings(BaseSettings):
     @field_validator("database_url", "database_url_unpooled")
     @classmethod
     def _psycopg(cls, v: str | None) -> str | None:
-        # Neon·Render가 주는 postgres:// 주소를 SQLAlchemy psycopg 드라이버 주소로 바꾼다
-        if v is None:
-            return v
-        for prefix in ("postgres://", "postgresql://"):
-            if v.startswith(prefix):
-                return "postgresql+psycopg://" + v[len(prefix) :]
-        return v
+        return normalize_db_url(v)
 
     @property
     def is_sqlite(self) -> bool:
