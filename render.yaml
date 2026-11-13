@@ -13,5 +13,6 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
+      # 웹 버전(EAS Hosting) 주소와 개발용 웹 미리보기 주소. 휴대폰 앱(APK)은 CORS와 상관없다.
       - key: CORS_ORIGINS
-        value: '["http://localhost:8081"]'
+        value: '["https://teamplaylog.expo.app", "http://localhost:8081"]'
