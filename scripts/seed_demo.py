@@ -1,11 +1,13 @@
 """시연용 데이터 넣기 (로컬 개발 서버 전용).
 
     .venv/Scripts/python scripts/seed_demo.py [서버 주소, 기본 http://localhost:8000]
+    SEED_BASE_DATE=2026-11-19 .venv/Scripts/python scripts/seed_demo.py <서버 주소>   # 마감일을 그날 기준으로
 
 4명 팀(조장·민수·지윤·현우)과 역할 약속, 할 일, 기록을 만든다. 이미 있으면 로그인만 한다.
 시연 계정 비밀번호는 모두 아래 DEMO_PASSWORD이다. 실제 서비스 계정에 쓰지 말 것.
 """
 
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -34,10 +36,15 @@ def call(h, method, path, json=None):
     return r.json() if r.content else None
 
 
+KST = timezone(timedelta(hours=9))
+# 기준 날짜. 환경 변수 SEED_BASE_DATE=2026-11-19 처럼 주면 그날을 '오늘'로 보고 마감일을 정한다 (심사 기간에 맞출 때).
+_base = os.environ.get("SEED_BASE_DATE")
+BASE_DAY = datetime.fromisoformat(_base).replace(tzinfo=KST) if _base else datetime.now(KST)
+
+
 def at(days: float, hour: int = 18) -> str:
-    """오늘(KST) 기준 days일 뒤 hour시(KST)를 UTC ISO로."""
-    kst = timezone(timedelta(hours=9))
-    d = datetime.now(kst).replace(hour=hour, minute=0, second=0, microsecond=0) + timedelta(days=days)
+    """기준 날짜(KST) 기준 days일 뒤 hour시(KST)를 UTC ISO로."""
+    d = BASE_DAY.replace(hour=hour, minute=0, second=0, microsecond=0) + timedelta(days=days)
     return d.astimezone(timezone.utc).isoformat()
 
 
